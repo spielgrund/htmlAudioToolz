@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WAV File Info Viewer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f4f4f4;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      max-width: 700px;
+      margin: auto;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    .file-block {
+      border-top: 1px solid #ddd;
+      margin-top: 15px;
+      padding-top: 10px;
+    }
+    .file-block:first-child {
+      border-top: none;
+      margin-top: 0;
+      padding-top: 0;
+    }
+    .info p {
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Upload WAV Files</h2>
+    <input type="file" id="fileInput" accept="audio/wav" multiple>
+    <div id="filesInfo"></div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const filesInfo = document.getElementById('filesInfo');
+
+    function getAudioFormatName(formatCode) {
+      switch(formatCode) {
+        case 1: return "PCM";
+        case 3: return "IEEE Float";
+        case 6: return "8-bit A-law";
+        case 7: return "8-bit μ-law";
+        default: return "Unknown (" + formatCode + ")";
+      }
+    }
+
+    function findDataChunk(dataView) {
+      let offset = 12; // Skip RIFF header
+      while (offset < dataView.byteLength) {
+        const chunkId = String.fromCharCode(
+          dataView.getUint8(offset),
+          dataView.getUint8(offset+1),
+          dataView.getUint8(offset+2),
+          dataView.getUint8(offset+3)
+        );
+        const chunkSize = dataView.getUint32(offset + 4, true);
+
+        if (chunkId === 'data') {
+          return {offset: offset + 8, size: chunkSize};
+        }
+        offset += 8 + chunkSize;
+      }
+      return null;
+    }
+
+    fileInput.addEventListener('change', async (event) => {
+      const files = event.target.files;
+      if (!files.length) return;
+
+      filesInfo.innerHTML = "";
+
+      for (const file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const dataView = new DataView(arrayBuffer);
+
+        // Parse WAV header
+        const audioFormat = dataView.getUint16(20, true);
+        const numChannels = dataView.getUint16(22, true);
+        const sampleRate = dataView.getUint32(24, true);
+        const byteRate = dataView.getUint32(28, true);
+        const bitsPerSample = dataView.getUint16(34, true);
+
+        // Find data chunk properly
+        const dataChunk = findDataChunk(dataView);
+        let duration = 0;
+        let dataSizeReadable = "N/A";
+        if (dataChunk) {
+          duration = dataChunk.size / byteRate;
+          if (dataChunk.size > 1024 * 1024) {
+            dataSizeReadable = (dataChunk.size / (1024*1024)).toFixed(2) + ' MB';
+          } else {
+            dataSizeReadable = (dataChunk.size / 1024).toFixed(2) + ' KB';
+          }
+        }
+
+        const bitrate = (bitsPerSample * sampleRate * numChannels) / 1000; // kbps
+        const formatName = getAudioFormatName(audioFormat);
+
+        const block = document.createElement('div');
+        block.classList.add('file-block');
+        block.innerHTML = `
+          <p><b>File Name:</b> ${file.name}</p>
+          <p><b>Audio Format:</b> ${formatName}</p>
+          <p><b>Sample Rate:</b> ${sampleRate} Hz</p>
+          <p><b>Channels:</b> ${numChannels}</p>
+          <p><b>Bit Depth:</b> ${bitsPerSample} bits</p>
+          <p><b>Duration:</b> ${duration.toFixed(2)} seconds</p>
+          <p><b>Data Chunk Size:</b> ${dataSizeReadable}</p>
+          <p><b>Bitrate:</b> ${bitrate.toFixed(2)} kbps</p>
+        `;
+
+        filesInfo.appendChild(block);
+      }
+    });
+  </script>
+</body>
+</html>
